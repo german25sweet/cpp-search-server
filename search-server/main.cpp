@@ -65,7 +65,7 @@ public:
 
     void AddDocument(int document_id, const string& document) {
 
-        ++document_count_;
+        ++documents_count_;
 
         const vector<string> words = SplitIntoWordsNoStop(document);
 
@@ -107,7 +107,7 @@ public:
 
 private:
 
-    int document_count_ = 0;
+    int documents_count_ = 0;
 
     map<string, map<int, double>> documents_;
     set<string> stop_words_;
@@ -132,12 +132,18 @@ private:
         set<string> minus_words;
 
         for (string& word : SplitIntoWordsNoStop(text)) {
-            if (word[0] != '-')
+            if (ParseQueryWord(word))
                 query_words.insert(word);
             else
                 minus_words.insert(word.erase(0, 1));
         }
+
         return { query_words, minus_words };
+    }
+
+    bool ParseQueryWord(const string& query_word) const
+    {
+        return query_word[0] != '-';
     }
 
     map<int, double> FindAllDocuments(const Query& query) const {
@@ -164,10 +170,15 @@ private:
         {
             for (auto& [document_id, tf_value] : relev_pairs)
             {
-                matched_documents[document_id] += tf_value * log(document_count_ / static_cast<double>(relev_pairs.size()));
+                matched_documents[document_id] += tf_value * CalculateIdf(static_cast<int>(relev_pairs.size()));
             }
         }
         return matched_documents;
+    }
+
+    double CalculateIdf(int documents_with_word_count) const
+    {
+        return log(static_cast<double>(documents_count_) / documents_with_word_count);
     }
 };
 
