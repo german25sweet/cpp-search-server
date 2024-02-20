@@ -1,6 +1,3 @@
-// Решите загадку: Сколько чисел от 1 до 1000 содержат как минимум одну цифру 3?
-// Напишите ответ здесь: погуглил, ответ 271
-
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -103,27 +100,28 @@ public:
 		document_ratings_and_status[document_id].status = status;
 
 		const vector<string> documentWords = SplitIntoWordsNoStop(document);
+		const double wordsCount = 1 / static_cast<double>(documentWords.size());
 
 		map<std::string, int> countMap;
 
 		for (const auto& word : documentWords) {
-			countMap[word]++;
-		}
-
-		for (const auto& [word, count] : countMap) {
-
-			documents_[word][document_id] = count / static_cast<double>(documentWords.size());
+			documents_[word][document_id] += wordsCount;
 		}
 	}
 
 	static int ComputeAverageRating(const vector<int>& ratings) {
-		if (ratings.empty()) return 0;
+		if (ratings.empty()) {
+			return 0;
+		}
 		int sum = std::accumulate(ratings.begin(), ratings.end(), 0);
-		if (sum == 0) return 0;
+		if (sum == 0) {
+			return 0;
+		}
 		return sum / static_cast<int>(ratings.size());
 	}
 
-	template<typename T> vector<Document> FindTopDocuments(const string& raw_query, T filter_func) const {
+	template<typename T>
+	vector<Document> FindTopDocuments(const string& raw_query, T filter_func) const {
 		auto top_documents = FindAllDocuments(ParseQuery(raw_query), filter_func);
 
 		sort(top_documents.begin(), top_documents.end(),
@@ -149,21 +147,10 @@ public:
 
 		set<string> matched_strings;
 
-		if (!query.minus_words_.count(document_id))
-		{
-			for (const auto& query_word : query.query_words_)
-			{
-				if (documents_.count(query_word) > 0)
-				{
-					try {
-						if (documents_.at(query_word).at(document_id))
-							matched_strings.insert(query_word);
-					}
-
-					catch (std::out_of_range& ex)
-					{
-						continue;
-					}
+		if (!query.minus_words_.count(document_id)) {
+			for (const auto& query_word : query.query_words_) {
+				if (documents_.count(query_word) > 0 && documents_.at(query_word).count(document_id)) {
+					matched_strings.insert(query_word);
 				}
 			}
 		}
@@ -206,10 +193,10 @@ private:
 		set<int> minus_words;
 
 		for (string& word : SplitIntoWordsNoStop(text)) {
-			if (ParseQueryWord(word))
+			if (ParseQueryWord(word)) {
 				query_words.insert(word);
-			else
-			{
+			}
+			else {
 				auto it = documents_.find(word.erase(0, 1));
 				if (it != documents_.end()) {
 					for (const auto& [document_id, value] : it->second) {
@@ -227,7 +214,8 @@ private:
 		return query_word[0] != '-';
 	}
 
-	template<typename T> vector<Document> FindAllDocuments(const Query& query, const T& filter_func) const {
+	template<typename T>
+	vector<Document> FindAllDocuments(const Query& query, const T& filter_func) const {
 		map<int, double> matched_documents;
 		map<string, map<int, double>> relevant_documents;
 
@@ -267,10 +255,8 @@ SearchServer CreateSearchServer() {
 	const int document_count = ReadLineWithNumber();
 
 	for (int document_id = 0; document_id < document_count; ++document_id) {
-
 		auto doc = ReadLine();
 		auto doc_ratings = ReadLineWithRatings();
-
 		search_server.AddDocument(document_id, doc, DocumentStatus::ACTUAL, doc_ratings);
 	}
 
