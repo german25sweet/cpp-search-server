@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 #include <numeric>
+#include <stdexcept>
 
 using namespace std;
 
@@ -65,7 +66,6 @@ vector<string> SplitIntoWords(const string& text) {
 	if (!word.empty()) {
 		words.push_back(word);
 	}
-
 	return words;
 }
 
@@ -73,11 +73,24 @@ struct Document {
 	int id;
 	double relevance;
 	int rating;
+
+	Document() : id(0), relevance(0), rating(0) {}
+	Document(int id_, double relevance_, int _rating) : id(id_), relevance(relevance_), rating(_rating) {}
 };
 
 class SearchServer {
 
 public:
+	explicit SearchServer() {}
+
+	template <typename StringContainer>
+	explicit SearchServer(const StringContainer& stop_words) {
+		SetStopWords(stop_words);
+	}
+
+	explicit SearchServer(const string& stop_words_text) {
+		SetStopWords(stop_words_text);
+	}
 
 	int GetDocumentCount() const
 	{
@@ -85,14 +98,35 @@ public:
 	}
 
 	void SetStopWords(const string& text) {
+		if (!IsValidWord(text))
+			throw invalid_argument("Стоп слово содержит недопустимые символы");
 		for (const string& word : SplitIntoWords(text)) {
 			stop_words_.insert(word);
 		}
 	}
 
-	void AddDocument(int document_id, const string& document, DocumentStatus status, const vector<int>& ratings) {
+	void SetStopWords(const set<string>& stop_words) {
+		if (!IsValidWords(stop_words))
+			throw invalid_argument("Стоп слово содержит недопустимые символы");
+		stop_words_ = stop_words;
+	}
+	void SetStopWords(const vector<string>& stop_words) {
+		if (!IsValidWords(stop_words))
+			throw invalid_argument("Стоп слово содержит недопустимые символы");
+		stop_words_ = set<string>{ stop_words.begin(),stop_words.end() };
+	}
+
+	void AddDocument(int document_id, const string& document, DocumentStatus status,
+		const vector<int>& ratings) {
+		if (document_id < 0)
+			throw invalid_argument("id("s + to_string(document_id) + ") меньше 0 "s);
+		if (document_ratings_and_status.count(document_id))
+			throw invalid_argument("Документ с id - "s + to_string(document_id) + "уже был добавлен");
+		if (!SearchServer::IsValidWord(document))
+			throw invalid_argument(" Наличие недопустимых символов в тексте добавляемого документа с id = " + to_string(document_id));
 
 		++documents_count_;
+		documents_id.push_back(document_id);
 
 		int rating = ComputeAverageRating(ratings);
 
@@ -120,9 +154,17 @@ public:
 		return sum / static_cast<int>(ratings.size());
 	}
 
+	int GetDocumentId(int index) const {
+
+		if (index > (static_cast<int>(documents_id.size()) - 1))
+			throw out_of_range("индекс переданного документа (" + to_string(index) + ") выходит за пределы допустимого диапазона");
+		return documents_id.at(index);
+	}
+
 	template<typename T>
 	vector<Document> FindTopDocuments(const string& raw_query, T filter_func) const {
-		auto top_documents = FindAllDocuments(ParseQuery(raw_query), filter_func);
+		auto query = ParseQuery(raw_query);
+		auto top_documents = FindAllDocuments(query, filter_func);
 
 		sort(top_documents.begin(), top_documents.end(),
 			[](const Document& lhs, const Document& rhs) {
@@ -133,7 +175,7 @@ public:
 			top_documents.resize(MAX_RESULT_DOCUMENT_COUNT);
 		}
 
-		return  top_documents;
+		return top_documents;
 	}
 
 	vector<Document> FindTopDocuments(const string& raw_query, DocumentStatus documentStatus = DocumentStatus::ACTUAL) const {
@@ -141,8 +183,7 @@ public:
 		return FindTopDocuments(raw_query, [documentStatus](int document_id, DocumentStatus status, int rating) { return status == documentStatus; });
 	}
 
-	tuple<vector<string>, DocumentStatus> MatchDocument(const string& raw_query, int document_id) const
-	{
+	tuple<vector<string>, DocumentStatus> MatchDocument(const string& raw_query, int document_id) const {
 		auto query = ParseQuery(raw_query);
 
 		set<string> matched_strings;
@@ -154,29 +195,41 @@ public:
 				}
 			}
 		}
-
 		vector <string> matched_words_vector{ matched_strings.begin(), matched_strings.end() };
 
-		return tuple(matched_words_vector, document_ratings_and_status.at(document_id).status);
+		return tuple(matched_words_vector, document_ratings_and_status.at(document_id).status);;
 	}
 
 private:
-	int documents_count_ = 0;
 
-	map<string, map<int, double>> documents_;
-	set<string> stop_words_;
+	int documents_count_ = 0;
+	inline static constexpr int INVALID_DOCUMENT_ID = -1;
 
 	struct DocumentAttributes {
 		int rating;
 		DocumentStatus status;
 	};
 
+	set<string> stop_words_;
+	vector<int> documents_id;
+	map<string, map<int, double>> documents_;
 	map<int, DocumentAttributes> document_ratings_and_status;
 
 	struct Query {
 		set<string> query_words_;
 		set<int> minus_words_;
 	};
+
+	static bool IsValidWord(const string& word) {
+		return none_of(word.begin(), word.end(), [](char c) {
+			return c >= '\0' && c < ' ';
+			});
+	}
+
+	template<typename WordContainer>
+	static bool IsValidWords(const WordContainer& words) {
+		return all_of(words.begin(), words.end(), IsValidWord);
+	}
 
 	vector<string> SplitIntoWordsNoStop(const string& text) const {
 		vector<string> words;
@@ -189,14 +242,21 @@ private:
 	}
 
 	Query ParseQuery(const string& text) const {
+		if (!IsValidWord(text))
+			throw invalid_argument("В словах поискового запроса есть недопустимые символы");
+
 		set<string> query_words;
 		set<int> minus_words;
 
 		for (string& word : SplitIntoWordsNoStop(text)) {
+			if (word == "-")
+				throw invalid_argument("Отсутствие текста после символа «минус» в поисковом запросе");
 			if (ParseQueryWord(word)) {
 				query_words.insert(word);
 			}
 			else {
+				if (word[1] == '-')
+					throw invalid_argument("Наличие более чем одного минуса у минус слов поискового запроса");
 				auto it = documents_.find(word.erase(0, 1));
 				if (it != documents_.end()) {
 					for (const auto& [document_id, value] : it->second) {
@@ -205,12 +265,10 @@ private:
 				}
 			}
 		}
-
 		return { query_words, minus_words };
 	}
 
-	bool ParseQueryWord(const string& query_word) const
-	{
+	bool ParseQueryWord(const string& query_word) const {
 		return query_word[0] != '-';
 	}
 
@@ -247,21 +305,6 @@ private:
 	}
 };
 
-SearchServer CreateSearchServer() {
-
-	SearchServer search_server;
-	search_server.SetStopWords(ReadLine());
-
-	const int document_count = ReadLineWithNumber();
-
-	for (int document_id = 0; document_id < document_count; ++document_id) {
-		auto doc = ReadLine();
-		auto doc_ratings = ReadLineWithRatings();
-		search_server.AddDocument(document_id, doc, DocumentStatus::ACTUAL, doc_ratings);
-	}
-
-	return search_server;
-}
 
 void PrintMatchDocumentResult(int document_id, const vector<string>& words, DocumentStatus status) {
 	cout << "{ "s
@@ -282,23 +325,45 @@ void PrintDocument(const Document& document) {
 }
 
 int main() {
-	SearchServer search_server;
-	search_server.SetStopWords("и в на"s);
-	search_server.AddDocument(0, "белый кот и модный ошейник"s, DocumentStatus::ACTUAL, { 8, -3 });
-	search_server.AddDocument(1, "пушистый кот пушистый хвост"s, DocumentStatus::ACTUAL, { 7, 2, 7 });
-	search_server.AddDocument(2, "ухоженный пёс выразительные глаза"s, DocumentStatus::ACTUAL, { 5, -12, 2, 1 });
-	search_server.AddDocument(3, "ухоженный скворец евгений"s, DocumentStatus::BANNED, { 9 });
-	cout << "ACTUAL by default:"s << endl;
-	for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s)) {
-		PrintDocument(document);
+	setlocale(LC_ALL, "Russian");
+
+	try {
+		// SearchServer search_server("и \x0A в на"s);
+		SearchServer search_server;
+		search_server.FindTopDocuments("--прив");
 	}
-	cout << "BANNED:"s << endl;
-	for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s, DocumentStatus::BANNED)) {
-		PrintDocument(document);
+
+	catch (invalid_argument& ex) {
+		cout << "Ошибка - " << ex.what() << endl;
 	}
-	cout << "Even ids:"s << endl;
-	for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s, [](int document_id, DocumentStatus status, int rating) { return document_id % 2 == 0; })) {
-		PrintDocument(document);
+	catch (out_of_range& ex) {
+		cout << "Ошибка - " << ex.what() << endl;
 	}
-	return 0;
+
+	try {
+		SearchServer search_server("и в на"s);
+		search_server.AddDocument(0, "белый кот и модный ошейник"s, DocumentStatus::ACTUAL, { 8, -3 });
+		search_server.AddDocument(1, "пушистый кот пушистый хвост"s, DocumentStatus::ACTUAL, { 7, 2, 7 });
+		search_server.AddDocument(2, "ухоженный пёс выразительные глаза"s, DocumentStatus::ACTUAL, { 5, -12, 2, 1 });
+		search_server.AddDocument(3, "ухоженный скворец евгений"s, DocumentStatus::BANNED, { 9 });
+		cout << "ACTUAL by default:"s << endl;
+		for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s)) {
+			PrintDocument(document);
+		}
+		cout << "BANNED:"s << endl;
+		for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s, DocumentStatus::BANNED)) {
+			PrintDocument(document);
+		}
+		cout << "Even ids:"s << endl;
+		for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s, [](int document_id, DocumentStatus status, int rating) { return document_id % 2 == 0; })) {
+			PrintDocument(document);
+		}
+	}
+
+	catch (invalid_argument& ex) {
+		cout << "Ошибка - " << ex.what() << endl;
+	}
+	catch (out_of_range& ex) {
+		cout << "Ошибка - " << ex.what() << endl;
+	}
 }
