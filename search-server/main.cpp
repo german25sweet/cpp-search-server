@@ -229,10 +229,10 @@ private:
 		set<int> minus_words;
 
 		for (const auto& raw_query_word : SplitIntoWords(text)) {
-			bool isStopWord = false;
-			auto query_word = ParseQueryWord(raw_query_word, isStopWord);
+			bool is_stop_word = false;
+			auto query_word = ParseQueryWord(raw_query_word, is_stop_word);
 
-			if (!isStopWord) {
+			if (!is_stop_word) {
 				if (!stop_words_.count(query_word)) {
 					query_words.insert(query_word);
 				}
@@ -251,7 +251,7 @@ private:
 		return { query_words,minus_words };
 	}
 
-	string ParseQueryWord(const string& raw_query_word, bool& isStopWord) const {
+	string ParseQueryWord(const string& raw_query_word, bool& is_stop_word) const {
 		if (raw_query_word == "-") {
 			throw invalid_argument("Отсутствие текста после символа «минус» в поисковом запросе");
 		}
@@ -259,6 +259,7 @@ private:
 			return raw_query_word;
 		}
 		else {
+			is_stop_word = true;
 			return raw_query_word.substr(1);
 		}
 	}
