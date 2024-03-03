@@ -172,7 +172,7 @@ public:
 		}
 		vector <string> matched_words_vector{ matched_strings.begin(), matched_strings.end() };
 
-		return { matched_words_vector, document_ratings_and_status.at(document_id).status) };
+		return { { matched_words_vector}, {document_ratings_and_status.at(document_id).status  } };
 	}
 
 private:
@@ -221,6 +221,12 @@ private:
 		return words;
 	}
 
+	struct QueryWord {
+		string word;
+		bool is_stop = false;
+		bool is_minus = false;
+	};
+
 	Query ParseQuery(const string& text) const {
 		if (!IsValidWord(text)) {
 			throw invalid_argument("В словах поискового запроса есть недопустимые символы");
@@ -229,18 +235,15 @@ private:
 		set<int> minus_words;
 
 		for (const auto& raw_query_word : SplitIntoWords(text)) {
-			auto [query_word, is_query_word, is_minus_word] = ParseQueryWord(raw_query_word);
+			auto query = ParseQueryWord(raw_query_word);
 
-			if (is_query_word) {
-				if (!stop_words_.count(query_word)) {
-					query_words.insert(query_word);
+			if (query.is_stop) {
+				if (!stop_words_.count(query.word)) {
+					query_words.insert(query.word);
 				}
 			}
-			else if (is_minus_word) {
-				if (query_word[0] == '-') {
-					throw invalid_argument("Наличие более чем одного минуса у минус слов поискового запроса");
-				}
-				if (auto it = documents_.find(query_word); it != documents_.end() && !stop_words_.count(query_word)) {
+			else if (query.is_minus) {
+				if (auto it = documents_.find(query.word); it != documents_.end() && !stop_words_.count(query.word)) {
 					for (const auto& [document_id, value] : it->second) {
 						minus_words.insert(document_id);
 					}
@@ -250,11 +253,6 @@ private:
 		return { query_words,minus_words };
 	}
 
-	struct QueryWord {
-		string word;
-		bool is_query_word = false;
-		bool is_minus_word = false;
-	};
 
 	QueryWord ParseQueryWord(const string& raw_query_word) const {
 		if (raw_query_word == "-") {
@@ -264,6 +262,9 @@ private:
 			return { raw_query_word, true, false };
 		}
 		else {
+			if (raw_query_word[1] == '-') {
+				throw invalid_argument("Наличие более чем одного минуса у минус слов поискового запроса");
+			}
 			return { raw_query_word.substr(1), false, true };
 		}
 	}
@@ -345,7 +346,7 @@ int main() {
 		search_server.AddDocument(2, "ухоженный пёс выразительные глаза"s, DocumentStatus::ACTUAL, { 5, -12, 2, 1 });
 		search_server.AddDocument(3, "ухоженный скворец евгений"s, DocumentStatus::BANNED, { 9 });
 		cout << "ACTUAL by default:"s << endl;
-		for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный -кот"s)) {
+		for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s)) {
 			PrintDocument(document);
 		}
 		cout << "BANNED:"s << endl;
