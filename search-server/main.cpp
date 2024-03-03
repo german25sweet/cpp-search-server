@@ -172,7 +172,7 @@ public:
 		}
 		vector <string> matched_words_vector{ matched_strings.begin(), matched_strings.end() };
 
-		return tuple(matched_words_vector, document_ratings_and_status.at(document_id).status);;
+		return { matched_words_vector, document_ratings_and_status.at(document_id).status) };
 	}
 
 private:
@@ -229,15 +229,14 @@ private:
 		set<int> minus_words;
 
 		for (const auto& raw_query_word : SplitIntoWords(text)) {
-			bool is_stop_word = false;
-			auto query_word = ParseQueryWord(raw_query_word, is_stop_word);
+			auto [query_word, is_query_word, is_minus_word] = ParseQueryWord(raw_query_word);
 
-			if (!is_stop_word) {
+			if (is_query_word) {
 				if (!stop_words_.count(query_word)) {
 					query_words.insert(query_word);
 				}
 			}
-			else {
+			else if (is_minus_word) {
 				if (query_word[0] == '-') {
 					throw invalid_argument("Наличие более чем одного минуса у минус слов поискового запроса");
 				}
@@ -251,16 +250,21 @@ private:
 		return { query_words,minus_words };
 	}
 
-	string ParseQueryWord(const string& raw_query_word, bool& is_stop_word) const {
+	struct QueryWord {
+		string word;
+		bool is_query_word = false;
+		bool is_minus_word = false;
+	};
+
+	QueryWord ParseQueryWord(const string& raw_query_word) const {
 		if (raw_query_word == "-") {
 			throw invalid_argument("Отсутствие текста после символа «минус» в поисковом запросе");
 		}
 		if (raw_query_word[0] != '-') {
-			return raw_query_word;
+			return { raw_query_word, true, false };
 		}
 		else {
-			is_stop_word = true;
-			return raw_query_word.substr(1);
+			return { raw_query_word.substr(1), false, true };
 		}
 	}
 
@@ -341,7 +345,7 @@ int main() {
 		search_server.AddDocument(2, "ухоженный пёс выразительные глаза"s, DocumentStatus::ACTUAL, { 5, -12, 2, 1 });
 		search_server.AddDocument(3, "ухоженный скворец евгений"s, DocumentStatus::BANNED, { 9 });
 		cout << "ACTUAL by default:"s << endl;
-		for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный кот"s)) {
+		for (const Document& document : search_server.FindTopDocuments("пушистый ухоженный -кот"s)) {
 			PrintDocument(document);
 		}
 		cout << "BANNED:"s << endl;
